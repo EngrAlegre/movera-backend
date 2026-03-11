@@ -25,7 +25,7 @@ SUPABASE_SERVICE_KEY = os.environ['SUPABASE_SERVICE_KEY']
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 # Config
-PERPLEXITY_API_KEY = os.environ.get('PERPLEXITY_API_KEY', '')
+PERPLEXITY_API_KEY = os.environ.get('PERPLEXITY_API_KEY', '').strip()
 JWT_SECRET = os.environ.get('JWT_SECRET', 'movera-jwt-secret-2024-secure')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 168
@@ -97,7 +97,7 @@ async def call_perplexity(system_prompt: str, user_prompt: str, max_tokens: int 
         )
         if response.status_code != 200:
             logger.error(f'Perplexity API error: {response.status_code} - {response.text}')
-            raise HTTPException(status_code=502, detail='AI service unavailable')
+            raise HTTPException(status_code=502, detail=f'{response.status_code}: {response.text[:200]}')
         data = response.json()
         return data['choices'][0]['message']['content']
 
@@ -121,7 +121,7 @@ async def call_perplexity_chat(messages: list, max_tokens: int = 1500) -> str:
         )
         if response.status_code != 200:
             logger.error(f'Perplexity API error: {response.status_code} - {response.text}')
-            raise HTTPException(status_code=502, detail='AI service unavailable')
+            raise HTTPException(status_code=502, detail=f'{response.status_code}: {response.text[:200]}')
         data = response.json()
         return data['choices'][0]['message']['content']
 
@@ -892,6 +892,22 @@ async def delete_account(user: dict = Depends(get_current_user)):
 @app.get("/")
 async def root():
     return {"status": "ok", "app": "MovEra API", "docs": "/docs"}
+
+@app.get("/debug/perplexity")
+async def debug_perplexity():
+    """Temporary endpoint to diagnose Perplexity API issues on Render."""
+    key = PERPLEXITY_API_KEY
+    key_info = f"{key[:8]}...{key[-4:]}" if len(key) > 12 else f"len={len(key)}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            response = await http_client.post(
+                'https://api.perplexity.ai/chat/completions',
+                json={'model': PERPLEXITY_MODEL, 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 10},
+                headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}
+            )
+            return {"key_preview": key_info, "status": response.status_code, "body": response.text[:300]}
+    except Exception as e:
+        return {"key_preview": key_info, "error": str(e)}
 
 app.include_router(api_router)
 app.add_middleware(
