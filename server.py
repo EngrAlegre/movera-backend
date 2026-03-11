@@ -657,12 +657,10 @@ Guidelines:
 - Never diagnose medical conditions
 - Recommend a health professional for concerning symptoms"""
 
-    recent_messages_result = supabase.table('ai_messages').select('*').eq('user_id', user['id']).order('created_at').limit(10).execute()
-    recent_messages = normalize_chat_history(recent_messages_result.data or [])
-
-    messages = [{'role': 'system', 'content': system_prompt}]
-    messages.extend(recent_messages)
-    messages.append({'role': 'user', 'content': req.message})
+    messages = [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': req.message},
+    ]
 
     try:
         response_text = await call_perplexity_chat(messages, max_tokens=1500)
