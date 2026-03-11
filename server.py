@@ -872,6 +872,10 @@ async def delete_account(user: dict = Depends(get_current_user)):
 
 # ==================== APP SETUP ====================
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "app": "MovEra API", "docs": "/docs"}
+
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
