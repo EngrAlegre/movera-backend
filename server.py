@@ -125,6 +125,22 @@ async def call_perplexity_chat(messages: list, max_tokens: int = 1500) -> str:
         data = response.json()
         return data['choices'][0]['message']['content']
 
+def strip_markdown(text: str) -> str:
+    """Remove markdown formatting from AI responses for plain-text display."""
+    text = re.sub(r'#{1,6}\s+', '', text)
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'__(.+?)__', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'_(.+?)_', r'\1', text)
+    text = re.sub(r'~~(.+?)~~', r'\1', text)
+    text = re.sub(r'`{1,3}(.+?)`{1,3}', r'\1', re.DOTALL)
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    text = re.sub(r'^>\s?', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^[-*+]\s', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\d+\.\s', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^---+$', '', text, flags=re.MULTILINE)
+    return text.strip()
+
 def clean_json_text(text: str) -> str:
     """Clean common LLM artifacts from JSON text."""
     text = re.sub(r',\s*([}\]])', r'\1', text)
@@ -623,6 +639,7 @@ Guidelines:
 
     try:
         response_text = await call_perplexity_chat(messages, max_tokens=1500)
+        response_text = strip_markdown(response_text)
         now = datetime.now(timezone.utc).isoformat()
         supabase.table('ai_messages').insert([
             {'id': str(uuid.uuid4()), 'user_id': user['id'], 'role': 'user', 'content': req.message, 'created_at': now},
