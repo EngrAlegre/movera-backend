@@ -141,6 +141,34 @@ def strip_markdown(text: str) -> str:
     text = re.sub(r'^---+$', '', text, flags=re.MULTILINE)
     return text.strip()
 
+def normalize_chat_history(rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Ensure chat history alternates user/assistant before sending it to Perplexity."""
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (
+            row.get('created_at') or '',
+            0 if row.get('role') == 'user' else 1,
+        ),
+    )
+
+    normalized: List[Dict[str, str]] = []
+    expected_role = 'user'
+
+    for row in sorted_rows:
+        role = row.get('role')
+        content = (row.get('content') or '').strip()
+        if role not in {'user', 'assistant'} or not content:
+            continue
+        if role != expected_role:
+            continue
+        normalized.append({'role': role, 'content': content})
+        expected_role = 'assistant' if role == 'user' else 'user'
+
+    if normalized and normalized[-1]['role'] == 'user':
+        normalized.pop()
+
+    return normalized
+
 def clean_json_text(text: str) -> str:
     """Clean common LLM artifacts from JSON text."""
     text = re.sub(r',\s*([}\]])', r'\1', text)
@@ -629,21 +657,21 @@ Guidelines:
 - Never diagnose medical conditions
 - Recommend a health professional for concerning symptoms"""
 
-    recent_messages_result = supabase.table('ai_messages').select('*').eq('user_id', user['id']).order('created_at', desc=True).limit(10).execute()
-    recent_messages = list(reversed(recent_messages_result.data)) if recent_messages_result.data else []
+    recent_messages_result = supabase.table('ai_messages').select('*').eq('user_id', user['id']).order('created_at').limit(10).execute()
+    recent_messages = normalize_chat_history(recent_messages_result.data or [])
 
     messages = [{'role': 'system', 'content': system_prompt}]
-    for msg in recent_messages:
-        messages.append({'role': msg['role'], 'content': msg['content']})
+    messages.extend(recent_messages)
     messages.append({'role': 'user', 'content': req.message})
 
     try:
         response_text = await call_perplexity_chat(messages, max_tokens=1500)
         response_text = strip_markdown(response_text)
-        now = datetime.now(timezone.utc).isoformat()
+        user_created_at = datetime.now(timezone.utc)
+        assistant_created_at = user_created_at + timedelta(milliseconds=1)
         supabase.table('ai_messages').insert([
-            {'id': str(uuid.uuid4()), 'user_id': user['id'], 'role': 'user', 'content': req.message, 'created_at': now},
-            {'id': str(uuid.uuid4()), 'user_id': user['id'], 'role': 'assistant', 'content': response_text, 'created_at': now}
+            {'id': str(uuid.uuid4()), 'user_id': user['id'], 'role': 'user', 'content': req.message, 'created_at': user_created_at.isoformat()},
+            {'id': str(uuid.uuid4()), 'user_id': user['id'], 'role': 'assistant', 'content': response_text, 'created_at': assistant_created_at.isoformat()}
         ]).execute()
         return {'message': response_text}
     except Exception as e:
