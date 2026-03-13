@@ -725,8 +725,9 @@ async def log_water(req: LogWaterRequest, user: dict = Depends(get_current_user)
     log_result = supabase.table('daily_logs').select('*').eq('user_id', user['id']).eq('date', today).execute()
     if log_result.data:
         current_water = log_result.data[0].get('water_ml', 0)
+        new_water = max(0, current_water + req.amount_ml)
         supabase.table('daily_logs').update({
-            'water_ml': current_water + req.amount_ml,
+            'water_ml': new_water,
             'updated_at': datetime.now(timezone.utc).isoformat()
         }).eq('user_id', user['id']).eq('date', today).execute()
     else:
@@ -744,8 +745,10 @@ async def log_steps(req: LogStepsRequest, user: dict = Depends(get_current_user)
     today = get_today()
     log_result = supabase.table('daily_logs').select('*').eq('user_id', user['id']).eq('date', today).execute()
     if log_result.data:
+        current_steps = log_result.data[0].get('steps', 0)
+        new_steps = max(current_steps, req.steps)
         supabase.table('daily_logs').update({
-            'steps': req.steps,
+            'steps': new_steps,
             'updated_at': datetime.now(timezone.utc).isoformat()
         }).eq('user_id', user['id']).eq('date', today).execute()
     else:
