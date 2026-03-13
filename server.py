@@ -640,6 +640,30 @@ async def ai_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     recent_logs = recent_logs_result.data if recent_logs_result.data else []
     workouts_this_week = sum(1 for log in recent_logs if log.get('workouts_completed'))
 
+    # Fetch User's current plans
+    meal_plan_result = supabase.table('meal_plans').select('plan_data,eaten_meals').eq('user_id', user['id']).order('created_at', desc=True).limit(1).execute()
+    meal_plan_ctx = "No meal plan generated yet."
+    if meal_plan_result.data:
+        mp = meal_plan_result.data[0]
+        eaten_count = len(mp.get('eaten_meals', []))
+        meal_plan_ctx = f"Has active meal plan. Details: {json.dumps(mp.get('plan_data', [])[:2])} (truncated). Total meals marked eaten: {eaten_count}."
+
+    workout_plan_result = supabase.table('workout_plans').select('plan_data,completed_days').eq('user_id', user['id']).order('created_at', desc=True).limit(1).execute()
+    workout_plan_ctx = "No workout plan generated yet."
+    if workout_plan_result.data:
+        wp = workout_plan_result.data[0]
+        completed_days = wp.get('completed_days', [])
+        workout_plan_ctx = f"Has active workout plan. Details: {json.dumps(wp.get('plan_data', [])[:2])} (truncated). Completed days: {completed_days}."
+
+    # Fetch recent chat history
+    history_result = supabase.table('ai_messages').select('*').eq('user_id', user['id']).order('created_at', desc=True).limit(14).execute()
+    history_rows = history_result.data if history_result.data else []
+    past_messages = normalize_chat_history(list(reversed(history_rows)))
+
+    lifestyle = user.get('lifestyle_mode', 'Budget-Friendly')
+    lifestyle_desc = ("Budget-Friendly (they are on a strict budget/less money, suggest cheap foods and free/no-equipment workouts)" 
+                      if lifestyle == "Budget-Friendly" else "Full Access (they have resources/money, suggest premium healthy foods and gym access/gear)")
+
     system_prompt = f"""You are Era, a friendly AI fitness coach in the MovEra app.
 
 User Profile:
@@ -647,20 +671,22 @@ User Profile:
 - Weight: {user.get('weight', 70)} {user.get('weight_unit', 'kg')}, Height: {user.get('height', 170)} {user.get('height_unit', 'cm')}
 - Goal: {user.get('fitness_goal', 'Maintain')}, Activity: {user.get('activity_level', 'Lightly Active')}
 - Experience: {user.get('experience_level', 'Beginner')}, Style: {user.get('workout_style', 'Home')}
-- Lifestyle Mode: {user.get('lifestyle_mode', 'Budget-Friendly')}
+- Lifestyle Mode: {lifestyle_desc}
 - Workouts this week: {workouts_this_week}
 
-Guidelines:
-- Be encouraging, practical, and concise (under 250 words)
-- For Budget-Friendly users: suggest affordable foods and no-equipment workouts
-- Ask clarifying questions before giving programs
-- Never diagnose medical conditions
-- Recommend a health professional for concerning symptoms"""
+User Plans Context (use this strictly if they ask about their current diet, meals, or workouts):
+- Meal Plan Status: {meal_plan_ctx}
+- Workout Plan Status: {workout_plan_ctx}
 
-    messages = [
-        {'role': 'system', 'content': system_prompt},
-        {'role': 'user', 'content': req.message},
-    ]
+Guidelines:
+- Be encouraging, practical, and incredibly concise (under 200 words).
+- Respect their Lifestyle Mode strictly in advice.
+- You MUST remember past conversations—they are provided to you right before the user's latest message. Reply contextually.
+- Never diagnose medical conditions."""
+
+    messages = [{'role': 'system', 'content': system_prompt}]
+    messages.extend(past_messages)
+    messages.append({'role': 'user', 'content': req.message})
 
     try:
         response_text = await call_perplexity_chat(messages, max_tokens=1500)
