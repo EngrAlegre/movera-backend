@@ -947,6 +947,7 @@ async def delete_account(user: dict = Depends(get_current_user)):
 # ==================== APP SETUP ====================
 
 @app.get("/")
+@app.head("/")
 async def root():
     return {"status": "ok", "app": "MovEra API", "docs": "/docs"}
 
