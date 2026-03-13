@@ -126,7 +126,7 @@ async def call_perplexity_chat(messages: list, max_tokens: int = 1500) -> str:
         return data['choices'][0]['message']['content']
 
 def strip_markdown(text: str) -> str:
-    """Remove markdown formatting from AI responses for plain-text display."""
+    """Remove markdown formatting and citations from AI responses for plain-text display."""
     text = re.sub(r'#{1,6}\s+', '', text)
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     text = re.sub(r'__(.+?)__', r'\1', text)
@@ -135,6 +135,8 @@ def strip_markdown(text: str) -> str:
     text = re.sub(r'~~(.+?)~~', r'\1', text)
     text = re.sub(r'`{1,3}(.+?)`{1,3}', r'\1', text, flags=re.DOTALL)
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    # Remove Perplexity citations like [1], [2][3], etc.
+    text = re.sub(r'\[\d+\]', '', text)
     text = re.sub(r'^>\s?', '', text, flags=re.MULTILINE)
     text = re.sub(r'^[-*+]\s', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\d+\.\s', '', text, flags=re.MULTILINE)
