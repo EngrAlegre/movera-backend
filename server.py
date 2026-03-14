@@ -239,6 +239,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     name: str = ""
+    country: str = "United States"
 
 class LoginRequest(BaseModel):
     email: str
@@ -251,6 +252,7 @@ class OnboardingRequest(BaseModel):
     weight_unit: str = "kg"
     height: float
     height_unit: str = "cm"
+    country: str = "United States"
     fitness_goal: str = "Maintain"
     activity_level: str = "Lightly Active"
     experience_level: str = "Beginner"
@@ -264,6 +266,7 @@ class ProfileUpdateRequest(BaseModel):
     weight_unit: Optional[str] = None
     height: Optional[float] = None
     height_unit: Optional[str] = None
+    country: Optional[str] = None
     fitness_goal: Optional[str] = None
     activity_level: Optional[str] = None
     experience_level: Optional[str] = None
@@ -321,7 +324,7 @@ async def register(req: RegisterRequest):
         'password_hash': hash_password(req.password),
         'name': req.name or req.email.split('@')[0],
         'age': 25, 'weight': 70.0, 'weight_unit': 'kg',
-        'height': 170.0, 'height_unit': 'cm',
+        'height': 170.0, 'height_unit': 'cm', 'country': req.country,
         'fitness_goal': 'Maintain', 'activity_level': 'Lightly Active',
         'experience_level': 'Beginner', 'workout_style': 'Home',
         'lifestyle_mode': 'Budget-Friendly', 'onboarding_completed': False,
@@ -396,14 +399,16 @@ def build_fallback_meal_plan(days: int, lifestyle: str):
 @api_router.post("/meals/generate")
 async def generate_meal_plan(req: GeneratePlanRequest, user: dict = Depends(get_current_user)):
     lifestyle = user.get('lifestyle_mode', 'Budget-Friendly')
-    budget_instruction = "IMPORTANT: Only use affordable, commonly available ingredients. Simple preparations. Tag each meal as 'Budget pick'." if lifestyle == "Budget-Friendly" else "Allow varied ingredients with reasonable cost. Tag each meal as 'Full access'."
+    country = user.get('country', 'United States')
+    
+    budget_instruction = "IMPORTANT: Only use highly affordable, culturally local, and commonly available ingredients found in wet markets/grocery stores." if lifestyle == "Budget-Friendly" else "Allow varied/premium ingredients."
     tag = "Budget pick" if lifestyle == "Budget-Friendly" else "Full access"
 
-    system_prompt = "You are a certified nutritionist. You MUST respond with ONLY a raw JSON object. No explanations, no markdown, no code fences, no citations. Just the JSON."
-    user_prompt = f"""Create a {req.days}-day meal plan. User: age {user.get('age', 25)}, {user.get('weight', 70)}{user.get('weight_unit', 'kg')}, goal: {user.get('fitness_goal', 'Maintain')}, activity: {user.get('activity_level', 'Lightly Active')}, lifestyle: {lifestyle}. {budget_instruction}
+    system_prompt = f"You are an expert nutritionist native to {country}. You MUST respond with ONLY a raw JSON object. NO markdown, NO code blocks (```), NO introductory text, NO conversational replies. Output ONLY valid parseable JSON."
+    user_prompt = f"""Plan a healthy {req.days}-day meal plan explicitly incorporating {country} cuisine and local staples. User: age {user.get('age', 25)}, {user.get('weight', 70)}{user.get('weight_unit', 'kg')}, goal: {user.get('fitness_goal', 'Maintain')}, activity: {user.get('activity_level', 'Lightly Active')}. Context: Location is {country}. Lifestyle is {lifestyle}. {budget_instruction}
 
-RESPOND WITH ONLY THIS JSON (replace ... with real data, no other text):
-{{"days":[{{"day":1,"meals":{{"breakfast":{{"name":"Meal Name","calories":350,"description":"Short description","ingredients":["item1","item2"],"preparation":"Steps to make","tag":"{tag}"}},"lunch":{{"name":"Meal","calories":450,"description":"Desc","ingredients":["a","b"],"preparation":"Steps","tag":"{tag}"}},"dinner":{{"name":"Meal","calories":500,"description":"Desc","ingredients":["a","b"],"preparation":"Steps","tag":"{tag}"}},"snack":{{"name":"Snack","calories":150,"description":"Desc","ingredients":["a"],"preparation":"Steps","tag":"{tag}"}}}}}}]}}"""
+Output EXACTLY this JSON format (replace ... with data). Strict compliance required:
+{{"days":[{{"day":1,"meals":{{"breakfast":{{"name":"...","calories":350,"description":"...","ingredients":["..."],"preparation":"...","tag":"{tag}"}},"lunch":{{...}},"dinner":{{...}},"snack":{{...}}}}}}]}}
 
     try:
         response_text = await call_perplexity(system_prompt, user_prompt, max_tokens=4000)
@@ -530,8 +535,10 @@ def build_fallback_workout_plan(days: int, lifestyle: str):
 async def generate_workout_plan(req: GeneratePlanRequest, user: dict = Depends(get_current_user)):
     lifestyle = user.get('lifestyle_mode', 'Budget-Friendly')
     workout_style = user.get('workout_style', 'Home')
+    country = user.get('country', 'United States')
+
     if lifestyle == "Budget-Friendly":
-        equipment_note = "NO equipment, bodyweight only. Home-based exercises ONLY."
+        equipment_note = "NO equipment, strictly bodyweight only. Home-based exercises ONLY."
     elif workout_style == "Gym":
         equipment_note = "Gym equipment: dumbbells, barbells, machines, cables."
     elif workout_style == "Outdoor":
@@ -539,11 +546,11 @@ async def generate_workout_plan(req: GeneratePlanRequest, user: dict = Depends(g
     else:
         equipment_note = "Home with basic equipment: dumbbells, resistance bands, yoga mat."
 
-    system_prompt = "You are an expert fitness coach. You MUST respond with ONLY a raw JSON object. No explanations, no markdown, no code fences, no citations. Just the JSON."
-    user_prompt = f"""Create a {req.days}-day workout plan. User goal: {user.get('fitness_goal', 'Maintain')}, level: {user.get('experience_level', 'Beginner')}, activity: {user.get('activity_level', 'Lightly Active')}, style: {workout_style}. {equipment_note}
+    system_prompt = f"You are an expert {country} fitness coach. You MUST respond with ONLY a raw JSON object. NO markdown, NO code blocks (```), NO introductory text, NO conversational replies. Output ONLY valid parseable JSON."
+    user_prompt = f"""Create a {req.days}-day workout plan. User goal: {user.get('fitness_goal', 'Maintain')}, level: {user.get('experience_level', 'Beginner')}, activity: {user.get('activity_level', 'Lightly Active')}, style: {workout_style}. Context: {country}. {equipment_note}
 
-RESPOND WITH ONLY THIS JSON (replace ... with real data, 4-5 exercises per day, no other text):
-{{"days":[{{"day":1,"workout_type":"Full Body","duration":"30 mins","intensity":"Moderate","exercises":[{{"name":"Exercise Name","sets":3,"reps":"12","description":"How to do it","equipment":"None","rest":"60s"}}]}}]}}"""
+Output EXACTLY this JSON format (replace ... with data, 4-5 exercises per day). Strict compliance required:
+{{"days":[{{"day":1,"workout_type":"...","duration":"30 mins","intensity":"Moderate","exercises":[{{"name":"...","sets":3,"reps":"12","description":"...","equipment":"None","rest":"60s"}}]}}]}}"""
 
     try:
         response_text = await call_perplexity(system_prompt, user_prompt, max_tokens=4000)
