@@ -690,7 +690,7 @@ User Plans Context (use this strictly if they ask about their current diet, meal
 Guidelines:
 - Be encouraging, practical, and incredibly concise (under 200 words).
 - Respect their Lifestyle Mode strictly in advice.
-- You MUST remember past conversations -- they are provided to you right before the user's latest message. Reply contextually.
+- You MUST remember past conversations -- they are provided to you right before the users latest message. Reply contextually.
 - Never diagnose medical conditions."""
 
     messages = [{'role': 'system', 'content': system_prompt}]
