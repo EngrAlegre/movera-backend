@@ -408,7 +408,7 @@ async def generate_meal_plan(req: GeneratePlanRequest, user: dict = Depends(get_
     user_prompt = f"""Plan a healthy {req.days}-day meal plan explicitly incorporating {country} cuisine and local staples. User: age {user.get('age', 25)}, {user.get('weight', 70)}{user.get('weight_unit', 'kg')}, goal: {user.get('fitness_goal', 'Maintain')}, activity: {user.get('activity_level', 'Lightly Active')}. Context: Location is {country}. Lifestyle is {lifestyle}. {budget_instruction}
 
 Output EXACTLY this JSON format (replace ... with data). Strict compliance required:
-{{"days":[{{"day":1,"meals":{{"breakfast":{{"name":"...","calories":350,"description":"...","ingredients":["..."],"preparation":"...","tag":"{tag}"}},"lunch":{{...}},"dinner":{{...}},"snack":{{...}}}}}}]}}
+{{"days":[{{"day":1,"meals":{{"breakfast":{{"name":"...","calories":350,"description":"...","ingredients":["..."],"preparation":"...","tag":"{tag}"}},"lunch":{{...}},"dinner":{{...}},"snack":{{...}}}}}}]}}"""
 
     try:
         response_text = await call_perplexity(system_prompt, user_prompt, max_tokens=4000)
