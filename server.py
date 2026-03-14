@@ -239,7 +239,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     name: str = ""
-    country: str = "United States"
+    country: str = ""
 
 class LoginRequest(BaseModel):
     email: str
@@ -252,7 +252,7 @@ class OnboardingRequest(BaseModel):
     weight_unit: str = "kg"
     height: float
     height_unit: str = "cm"
-    country: str = "United States"
+    country: str = ""
     fitness_goal: str = "Maintain"
     activity_level: str = "Lightly Active"
     experience_level: str = "Beginner"
@@ -399,7 +399,7 @@ def build_fallback_meal_plan(days: int, lifestyle: str):
 @api_router.post("/meals/generate")
 async def generate_meal_plan(req: GeneratePlanRequest, user: dict = Depends(get_current_user)):
     lifestyle = user.get('lifestyle_mode', 'Budget-Friendly')
-    country = user.get('country', 'United States')
+    country = user.get('country') or 'a neutral location'
     
     budget_instruction = "IMPORTANT: Only use highly affordable, culturally local, and commonly available ingredients found in wet markets/grocery stores." if lifestyle == "Budget-Friendly" else "Allow varied/premium ingredients."
     tag = "Budget pick" if lifestyle == "Budget-Friendly" else "Full access"
@@ -535,7 +535,7 @@ def build_fallback_workout_plan(days: int, lifestyle: str):
 async def generate_workout_plan(req: GeneratePlanRequest, user: dict = Depends(get_current_user)):
     lifestyle = user.get('lifestyle_mode', 'Budget-Friendly')
     workout_style = user.get('workout_style', 'Home')
-    country = user.get('country', 'United States')
+    country = user.get('country') or 'a neutral location'
 
     if lifestyle == "Budget-Friendly":
         equipment_note = "NO equipment, strictly bodyweight only. Home-based exercises ONLY."
