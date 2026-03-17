@@ -676,7 +676,7 @@ async def ai_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     system_prompt = f"""You are Era, a friendly AI fitness coach in the MovEra app.
 
 User Profile:
-- Name: {user.get('name', 'User')}, Age: {user.get('age', 25)}
+- Name: {user.get('name') or 'User'}, Age: {user.get('age', 25)}
 - Weight: {user.get('weight', 70)} {user.get('weight_unit', 'kg')}, Height: {user.get('height', 170)} {user.get('height_unit', 'cm')}
 - Goal: {user.get('fitness_goal', 'Maintain')}, Activity: {user.get('activity_level', 'Lightly Active')}
 - Experience: {user.get('experience_level', 'Beginner')}, Style: {user.get('workout_style', 'Home')}
@@ -839,7 +839,7 @@ async def get_dashboard(user: dict = Depends(get_current_user)):
     quote = MOTIVATIONAL_QUOTES[day_hash % len(MOTIVATIONAL_QUOTES)]
 
     return {
-        'greeting_name': user.get('name', 'User'),
+        'greeting_name': user.get('name') or 'User',
         'calories_goal': calorie_goal,
         'calories_consumed': total_calories,
         'water_ml': daily_log.get('water_ml', 0),
