@@ -10,6 +10,8 @@ import httpx
 import uuid
 import hashlib
 import bcrypt
+import random
+import string
 import jwt as pyjwt
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -311,6 +313,14 @@ class ReflectionRequest(BaseModel):
     mood: str
     note: str = ""
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
 # ==================== AUTH ROUTES ====================
 
 @api_router.post("/auth/register")
@@ -351,6 +361,35 @@ async def login(req: LoginRequest):
 @api_router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):
     return user_dict_from_row(user)
+
+_reset_codes: Dict[str, Dict[str, Any]] = {}
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    email = req.email.lower().strip()
+    result = supabase.table('users').select('id').eq('email', email).execute()
+    if not result.data:
+        return {'message': 'If that email exists, a reset code has been generated.'}
+    code = ''.join(random.choices(string.digits, k=6))
+    _reset_codes[email] = {'code': code, 'expires': datetime.now(timezone.utc) + timedelta(minutes=15)}
+    logger.info(f'Password reset code for {email}: {code}')
+    return {'message': 'If that email exists, a reset code has been generated.', 'code': code}
+
+@api_router.post("/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    email = req.email.lower().strip()
+    stored = _reset_codes.get(email)
+    if not stored or stored['code'] != req.code:
+        raise HTTPException(status_code=400, detail='Invalid or expired reset code')
+    if datetime.now(timezone.utc) > stored['expires']:
+        _reset_codes.pop(email, None)
+        raise HTTPException(status_code=400, detail='Reset code has expired')
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail='Password must be at least 6 characters')
+    new_hash = hash_password(req.new_password)
+    supabase.table('users').update({'password_hash': new_hash, 'updated_at': datetime.now(timezone.utc).isoformat()}).eq('email', email).execute()
+    _reset_codes.pop(email, None)
+    return {'message': 'Password has been reset successfully'}
 
 # ==================== PROFILE ROUTES ====================
 
@@ -429,6 +468,7 @@ Output EXACTLY this JSON format (replace ... with data). Strict compliance requi
         'created_at': datetime.now(timezone.utc).isoformat()
     }
     supabase.table('meal_plans').insert(plan_doc).execute()
+    await check_achievements(user['id'])
     return plan_doc
 
 @api_router.get("/meals/current")
@@ -706,6 +746,7 @@ Guidelines:
             {'id': str(uuid.uuid4()), 'user_id': user['id'], 'role': 'user', 'content': req.message, 'created_at': user_created_at.isoformat()},
             {'id': str(uuid.uuid4()), 'user_id': user['id'], 'role': 'assistant', 'content': response_text, 'created_at': assistant_created_at.isoformat()}
         ]).execute()
+        await check_achievements(user['id'])
         return {'message': response_text}
     except Exception as e:
         logger.error(f'AI chat error: {e}')
@@ -745,6 +786,7 @@ async def log_water(req: LogWaterRequest, user: dict = Depends(get_current_user)
         }).execute()
     log = supabase.table('daily_logs').select('*').eq('user_id', user['id']).eq('date', today).execute()
     row = log.data[0]
+    await check_achievements(user['id'])
     return {k: v for k, v in row.items() if k != 'id'}
 
 @api_router.post("/logs/steps")
@@ -766,6 +808,7 @@ async def log_steps(req: LogStepsRequest, user: dict = Depends(get_current_user)
         }).execute()
     log = supabase.table('daily_logs').select('*').eq('user_id', user['id']).eq('date', today).execute()
     row = log.data[0]
+    await check_achievements(user['id'])
     return {k: v for k, v in row.items() if k != 'id'}
 
 @api_router.post("/logs/weight")
@@ -792,6 +835,35 @@ async def get_weight_history(user: dict = Depends(get_current_user)):
     result = supabase.table('weight_logs').select('weight,unit,date,created_at').eq('user_id', user['id']).order('date', desc=True).limit(30).execute()
     entries = list(reversed(result.data)) if result.data else []
     return entries
+
+@api_router.get("/logs/weekly-summary")
+async def get_weekly_summary(user: dict = Depends(get_current_user)):
+    today = datetime.now(timezone.utc).date()
+    days = []
+    total_water = 0
+    total_steps = 0
+    total_workouts = 0
+    total_meals = 0
+    for i in range(6, -1, -1):
+        date_str = (today - timedelta(days=i)).strftime('%Y-%m-%d')
+        result = supabase.table('daily_logs').select('*').eq('user_id', user['id']).eq('date', date_str).execute()
+        log = result.data[0] if result.data else {}
+        water = log.get('water_ml', 0) or 0
+        steps = log.get('steps', 0) or 0
+        workouts = len(log.get('workouts_completed', []) or [])
+        meals = len(log.get('meals_eaten', []) or [])
+        total_water += water
+        total_steps += steps
+        total_workouts += workouts
+        total_meals += meals
+        days.append({'date': date_str, 'water_ml': water, 'steps': steps, 'workouts': workouts, 'meals': meals, 'active': bool(workouts or meals)})
+    return {
+        'days': days,
+        'avg_water': round(total_water / 7),
+        'avg_steps': round(total_steps / 7),
+        'total_workouts': total_workouts,
+        'total_meals': total_meals,
+    }
 
 # ==================== DASHBOARD ====================
 
@@ -878,11 +950,22 @@ async def update_streak(user_id: str):
 
 async def check_achievements(user_id: str):
     streak = await get_streak(user_id)
-    # Count days with workouts
     workout_logs = supabase.table('daily_logs').select('id').eq('user_id', user_id).neq('workouts_completed', '[]').execute()
     total_workouts = len(workout_logs.data) if workout_logs.data else 0
     user_result = supabase.table('users').select('lifestyle_mode').eq('id', user_id).execute()
     user = user_result.data[0] if user_result.data else {}
+
+    today = get_today()
+    today_log = supabase.table('daily_logs').select('water_ml,steps').eq('user_id', user_id).eq('date', today).execute()
+    today_data = today_log.data[0] if today_log.data else {}
+    today_water = today_data.get('water_ml', 0) or 0
+    today_steps = today_data.get('steps', 0) or 0
+
+    meal_plans_result = supabase.table('meal_plans').select('id').eq('user_id', user_id).execute()
+    total_meal_plans = len(meal_plans_result.data) if meal_plans_result.data else 0
+
+    chat_count_result = supabase.table('ai_messages').select('id').eq('user_id', user_id).eq('role', 'user').execute()
+    total_chats = len(chat_count_result.data) if chat_count_result.data else 0
 
     badges = []
     if total_workouts >= 1:
@@ -891,8 +974,24 @@ async def check_achievements(user_id: str):
         badges.append({'badge_id': '3_day_streak', 'name': '3-Day Streak', 'description': '3 consecutive active days!', 'icon': 'flame'})
     if streak >= 7:
         badges.append({'badge_id': '7_day_streak', 'name': '7-Day Streak', 'description': 'A full week of consistency!', 'icon': 'star'})
+    if streak >= 14:
+        badges.append({'badge_id': '14_day_streak', 'name': 'Consistent', 'description': '14 days of pure dedication!', 'icon': 'ribbon'})
+    if streak >= 30:
+        badges.append({'badge_id': '30_day_streak', 'name': 'Iron Will', 'description': '30 days strong. Unstoppable!', 'icon': 'shield'})
     if user.get('lifestyle_mode') == 'Budget-Friendly' and total_workouts >= 7:
         badges.append({'badge_id': 'budget_beast', 'name': 'Budget Beast', 'description': 'Crushing it on Budget-Friendly!', 'icon': 'flash'})
+    if total_meal_plans >= 1:
+        badges.append({'badge_id': 'meal_prepper', 'name': 'Meal Prepper', 'description': 'Generated your first meal plan!', 'icon': 'restaurant'})
+    if today_water >= 2000:
+        badges.append({'badge_id': 'hydration_hero', 'name': 'Hydration Hero', 'description': 'Drank 2L+ water in a day!', 'icon': 'water'})
+    if today_steps >= 10000:
+        badges.append({'badge_id': 'step_master', 'name': 'Step Master', 'description': 'Hit 10,000 steps in a day!', 'icon': 'footsteps'})
+    if total_chats >= 50:
+        badges.append({'badge_id': 'chatterbox', 'name': 'Chatterbox', 'description': 'Sent 50+ messages to Era!', 'icon': 'chatbubbles'})
+    if total_workouts >= 7:
+        badges.append({'badge_id': 'full_week', 'name': 'Full Week', 'description': '7 workout days completed!', 'icon': 'calendar'})
+    if total_workouts >= 100:
+        badges.append({'badge_id': 'centurion', 'name': 'Centurion', 'description': '100 workout days. Legend!', 'icon': 'medal'})
 
     for badge in badges:
         existing = supabase.table('achievements').select('id').eq('user_id', user_id).eq('badge_id', badge['badge_id']).execute()
@@ -939,6 +1038,17 @@ async def submit_reflection(req: ReflectionRequest, user: dict = Depends(get_cur
         'happy': "Amazing energy! Keep riding that momentum!"
     }
     return {'message': messages.get(req.mood, 'Keep going!'), 'reflection': reflection}
+
+@api_router.get("/reflections/today")
+async def get_today_reflection(user: dict = Depends(get_current_user)):
+    today = get_today()
+    result = supabase.table('daily_reflections').select('*').eq('user_id', user['id']).eq('date', today).execute()
+    return result.data[0] if result.data else None
+
+@api_router.get("/reflections/history")
+async def get_reflection_history(user: dict = Depends(get_current_user)):
+    result = supabase.table('daily_reflections').select('*').eq('user_id', user['id']).order('date', desc=True).limit(30).execute()
+    return result.data if result.data else []
 
 # ==================== ACCOUNT ====================
 
