@@ -903,7 +903,21 @@ async def get_dashboard(user: dict = Depends(get_current_user)):
     meal_days_followed = sum(1 for log in weekly_logs if log.get('meals_eaten'))
     streak = await get_streak(user['id'])
 
-    total_calories = len(daily_log.get('meals_eaten', [])) * 400
+    total_calories = 0
+    eaten_meals = daily_log.get('meals_eaten', []) or []
+    if eaten_meals:
+        current_plan = supabase.table('meal_plans').select('plan_data').eq('user_id', user['id']).order('created_at', desc=True).limit(1).execute()
+        if current_plan.data and current_plan.data[0].get('plan_data'):
+            plan_days = current_plan.data[0]['plan_data']
+            for eaten in eaten_meals:
+                di = eaten.get('day_index', 0)
+                mt = eaten.get('meal_type', '')
+                if di < len(plan_days):
+                    meal = plan_days[di].get('meals', {}).get(mt, {})
+                    total_calories += meal.get('calories', 0) or 0
+        if total_calories == 0:
+            total_calories = len(eaten_meals) * 400
+
     calorie_goals = {'Lose Weight': 1800, 'Maintain': 2200, 'Build Muscle': 2800}
     calorie_goal = calorie_goals.get(user.get('fitness_goal', 'Maintain'), 2200)
 
