@@ -260,6 +260,7 @@ class OnboardingRequest(BaseModel):
     experience_level: str = "Beginner"
     workout_style: str = "Home"
     lifestyle_mode: str = "Budget-Friendly"
+    my_equipment: Optional[list] = None
 
 class ProfileUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -274,6 +275,7 @@ class ProfileUpdateRequest(BaseModel):
     experience_level: Optional[str] = None
     workout_style: Optional[str] = None
     lifestyle_mode: Optional[str] = None
+    my_equipment: Optional[list] = None
 
 class GeneratePlanRequest(BaseModel):
     days: int = 7
@@ -291,6 +293,11 @@ class WorkoutFeedbackRequest(BaseModel):
     plan_id: str
     day_index: int
     feedback: str
+
+class LogCustomMealRequest(BaseModel):
+    meal_type: str
+    name: str
+    calories: int = 0
 
 class RegenerateDayRequest(BaseModel):
     plan_id: str
@@ -508,6 +515,35 @@ async def mark_meal_eaten(req: MarkMealEatenRequest, user: dict = Depends(get_cu
     await update_streak(user['id'])
     return {'status': 'ok'}
 
+@api_router.post("/meals/log-custom")
+async def log_custom_meal(req: LogCustomMealRequest, user: dict = Depends(get_current_user)):
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    entry = {'meal_type': req.meal_type, 'name': req.name, 'calories': req.calories, 'custom': True}
+    log_result = supabase.table('daily_logs').select('*').eq('user_id', user['id']).eq('date', today).execute()
+    if log_result.data:
+        custom_meals = log_result.data[0].get('custom_meals', []) or []
+        custom_meals.append(entry)
+        supabase.table('daily_logs').update({
+            'custom_meals': custom_meals,
+            'updated_at': datetime.now(timezone.utc).isoformat()
+        }).eq('user_id', user['id']).eq('date', today).execute()
+    else:
+        supabase.table('daily_logs').insert({
+            'user_id': user['id'], 'date': today,
+            'custom_meals': [entry],
+            'updated_at': datetime.now(timezone.utc).isoformat()
+        }).execute()
+    await update_streak(user['id'])
+    return {'status': 'ok', 'entry': entry}
+
+@api_router.get("/meals/custom-today")
+async def get_custom_meals_today(user: dict = Depends(get_current_user)):
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    result = supabase.table('daily_logs').select('custom_meals').eq('user_id', user['id']).eq('date', today).execute()
+    if result.data and result.data[0].get('custom_meals'):
+        return result.data[0]['custom_meals']
+    return []
+
 @api_router.post("/meals/regenerate-day")
 async def regenerate_meal_day(req: RegenerateDayRequest, user: dict = Depends(get_current_user)):
     result = supabase.table('meal_plans').select('*').eq('id', req.plan_id).eq('user_id', user['id']).execute()
@@ -577,7 +613,10 @@ async def generate_workout_plan(req: GeneratePlanRequest, user: dict = Depends(g
     workout_style = user.get('workout_style', 'Home')
     country = user.get('country') or 'a neutral location'
 
-    if lifestyle == "Budget-Friendly":
+    my_equipment = user.get('my_equipment') or []
+    if my_equipment:
+        equipment_note = f"The user also owns this equipment: {', '.join(my_equipment)}. Where appropriate, incorporate these for more effective exercises. Bodyweight exercises are always fine too."
+    elif lifestyle == "Budget-Friendly":
         equipment_note = "NO equipment, strictly bodyweight only. Home-based exercises ONLY."
     elif workout_style == "Gym":
         equipment_note = "Gym equipment: dumbbells, barbells, machines, cables."
@@ -917,6 +956,10 @@ async def get_dashboard(user: dict = Depends(get_current_user)):
                     total_calories += meal.get('calories', 0) or 0
         if total_calories == 0:
             total_calories = len(eaten_meals) * 400
+
+    custom_meals = daily_log.get('custom_meals', []) or []
+    for cm in custom_meals:
+        total_calories += cm.get('calories', 0) or 0
 
     calorie_goals = {'Lose Weight': 1800, 'Maintain': 2200, 'Build Muscle': 2800}
     calorie_goal = calorie_goals.get(user.get('fitness_goal', 'Maintain'), 2200)
