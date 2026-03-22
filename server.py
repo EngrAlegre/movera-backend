@@ -519,29 +519,35 @@ async def mark_meal_eaten(req: MarkMealEatenRequest, user: dict = Depends(get_cu
 async def log_custom_meal(req: LogCustomMealRequest, user: dict = Depends(get_current_user)):
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     entry = {'meal_type': req.meal_type, 'name': req.name, 'calories': req.calories, 'custom': True}
-    log_result = supabase.table('daily_logs').select('*').eq('user_id', user['id']).eq('date', today).execute()
-    if log_result.data:
-        custom_meals = log_result.data[0].get('custom_meals', []) or []
-        custom_meals.append(entry)
-        supabase.table('daily_logs').update({
-            'custom_meals': custom_meals,
-            'updated_at': datetime.now(timezone.utc).isoformat()
-        }).eq('user_id', user['id']).eq('date', today).execute()
-    else:
-        supabase.table('daily_logs').insert({
-            'user_id': user['id'], 'date': today,
-            'custom_meals': [entry],
-            'updated_at': datetime.now(timezone.utc).isoformat()
-        }).execute()
-    await update_streak(user['id'])
-    return {'status': 'ok', 'entry': entry}
+    try:
+        log_result = supabase.table('daily_logs').select('*').eq('user_id', user['id']).eq('date', today).execute()
+        if log_result.data:
+            custom_meals = log_result.data[0].get('custom_meals', []) or []
+            custom_meals.append(entry)
+            supabase.table('daily_logs').update({
+                'custom_meals': custom_meals,
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }).eq('user_id', user['id']).eq('date', today).execute()
+        else:
+            supabase.table('daily_logs').insert({
+                'user_id': user['id'], 'date': today,
+                'custom_meals': [entry],
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }).execute()
+        await update_streak(user['id'])
+        return {'status': 'ok', 'entry': entry}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to log custom meal: {str(e)}. Make sure 'custom_meals' (jsonb) column exists in daily_logs table.")
 
 @api_router.get("/meals/custom-today")
 async def get_custom_meals_today(user: dict = Depends(get_current_user)):
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    result = supabase.table('daily_logs').select('custom_meals').eq('user_id', user['id']).eq('date', today).execute()
-    if result.data and result.data[0].get('custom_meals'):
-        return result.data[0]['custom_meals']
+    try:
+        result = supabase.table('daily_logs').select('custom_meals').eq('user_id', user['id']).eq('date', today).execute()
+        if result.data and result.data[0].get('custom_meals'):
+            return result.data[0]['custom_meals']
+    except Exception:
+        pass
     return []
 
 @api_router.post("/meals/regenerate-day")
@@ -1146,6 +1152,17 @@ async def debug_perplexity():
             return {"key_preview": key_info, "status": response.status_code, "body": response.text[:300]}
     except Exception as e:
         return {"key_preview": key_info, "error": str(e)}
+
+LATEST_APP_VERSION = "1.0.0"
+
+@api_router.get("/app/version")
+async def get_app_version():
+    return {
+        "latest_version": LATEST_APP_VERSION,
+        "force_update": False,
+        "update_message": "A new version of MovEra is available with improvements and bug fixes!",
+        "store_url": "https://play.google.com/store/apps/details?id=com.engralegre.movera"
+    }
 
 app.include_router(api_router)
 app.add_middleware(
