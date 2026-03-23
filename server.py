@@ -279,6 +279,7 @@ class ProfileUpdateRequest(BaseModel):
 
 class GeneratePlanRequest(BaseModel):
     days: int = 7
+    start_date: Optional[str] = None
 
 class MarkMealEatenRequest(BaseModel):
     plan_id: str
@@ -469,9 +470,11 @@ Output EXACTLY this JSON format (replace ... with data). Strict compliance requi
         plan_data = {"days": build_fallback_meal_plan(req.days, lifestyle)}
 
     plan_id = str(uuid.uuid4())
+    plan_start = req.start_date or datetime.now(timezone.utc).strftime('%Y-%m-%d')
     plan_doc = {
         'id': plan_id, 'user_id': user['id'], 'days': req.days,
         'plan_data': plan_data['days'], 'eaten_meals': [],
+        'start_date': plan_start,
         'created_at': datetime.now(timezone.utc).isoformat()
     }
     supabase.table('meal_plans').insert(plan_doc).execute()
@@ -647,9 +650,11 @@ Output EXACTLY this JSON format (replace ... with data, 4-5 exercises per day). 
         plan_data = {"days": build_fallback_workout_plan(req.days, lifestyle)}
 
     plan_id = str(uuid.uuid4())
+    plan_start = req.start_date or datetime.now(timezone.utc).strftime('%Y-%m-%d')
     plan_doc = {
         'id': plan_id, 'user_id': user['id'], 'days': req.days,
         'plan_data': plan_data['days'], 'completed_days': [], 'feedback': [],
+        'start_date': plan_start,
         'created_at': datetime.now(timezone.utc).isoformat()
     }
     supabase.table('workout_plans').insert(plan_doc).execute()
