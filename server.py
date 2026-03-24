@@ -1158,7 +1158,7 @@ async def debug_perplexity():
     except Exception as e:
         return {"key_preview": key_info, "error": str(e)}
 
-LATEST_APP_VERSION = "1.0.4"
+LATEST_APP_VERSION = "1.0.3"
 
 @api_router.get("/app/version")
 async def get_app_version():
