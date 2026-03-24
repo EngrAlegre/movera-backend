@@ -1158,13 +1158,13 @@ async def debug_perplexity():
     except Exception as e:
         return {"key_preview": key_info, "error": str(e)}
 
-LATEST_APP_VERSION = "1.0.0"
+LATEST_APP_VERSION = "1.0.3"
 
 @api_router.get("/app/version")
 async def get_app_version():
     return {
         "latest_version": LATEST_APP_VERSION,
-        "force_update": False,
+        "force_update": True,
         "update_message": "A new version of MovEra is available with improvements and bug fixes!",
         "store_url": "https://play.google.com/store/apps/details?id=com.engralegre.movera"
     }
